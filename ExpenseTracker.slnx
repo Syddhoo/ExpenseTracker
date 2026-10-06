@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="ExpenseTracker/ExpenseTracker.Client/ExpenseTracker.Client.csproj" />
+  <Project Path="ExpenseTracker/ExpenseTracker/ExpenseTracker.csproj" />
+</Solution>
