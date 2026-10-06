@@ -1,0 +1,218 @@
+@page "/dashboard"
+@using ExpenseTracker.Client.Services
+@inject TransactionService TransactionService
+@inject AuthService AuthService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@inject ILogger<Dashboard> Logger
+
+<div class="container-fluid mt-4">
+    <div class="row mb-4">
+        <div class="col-md-9">
+            <h2>Dashboard</h2>
+        </div>
+        <div class="col-md-3">
+            <div class="input-group">
+                <select class="form-select" @bind="selectedMonth">
+                    @for (int i = 1; i <= 12; i++)
+                    {
+                        <option value="@i">@System.Globalization.DateTimeFormatInfo.CurrentInfo.GetMonthName(i)</option>
+                    }
+                </select>
+                <input type="number" class="form-control" @bind="selectedYear" min="2020" max="2099">
+                <button class="btn btn-primary" @onclick="LoadSummary">Load</button>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (summary != null)
+    {
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card bg-primary text-white">
+                    <div class="card-body">
+                        <h5 class="card-title">Total Income</h5>
+                        <p class="card-text fs-4">@summary.TotalIncomes.ToString("C")</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-danger text-white">
+                    <div class="card-body">
+                        <h5 class="card-title">Total Expenses</h5>
+                        <p class="card-text fs-4">@summary.TotalExpenses.ToString("C")</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-@(summary.Balance >= 0 ? "success" : "warning") text-white">
+                    <div class="card-body">
+                        <h5 class="card-title">Balance</h5>
+                        <p class="card-text fs-4">@summary.Balance.ToString("C")</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-info text-white">
+                    <div class="card-body">
+                        <h5 class="card-title">Remaining</h5>
+                        <p class="card-text fs-4">@(summary.TotalIncomes - summary.TotalExpenses).ToString("C")</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Expenses by Category</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (summary.ExpensesByCategory == null || summary.ExpensesByCategory.Count == 0)
+                        {
+                            <p class="text-muted">No expenses for this month</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Category</th>
+                                            <th>Amount</th>
+                                            <th>Count</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var cat in summary.ExpensesByCategory)
+                                        {
+                                            <tr>
+                                                <td>@cat.CategoryName</td>
+                                                <td>@cat.Amount.ToString("C")</td>
+                                                <td>@cat.Count</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Summary Analysis</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center mb-3">
+                            <div class="col">
+                                <p class="text-muted mb-1">Avg. Daily Spending</p>
+                                <h6>@(summary.TotalExpenses > 0 ? (summary.TotalExpenses / 30).ToString("C") : "$0.00")</h6>
+                            </div>
+                            <div class="col">
+                                <p class="text-muted mb-1">Savings Rate</p>
+                                <h6>@(summary.TotalIncomes > 0 ? ((summary.Balance / summary.TotalIncomes * 100)).ToString("F1") + "%" : "0%")</h6>
+                            </div>
+                        </div>
+
+                        @if (summary.ExpensesByCategory?.Count > 0)
+                        {
+                            <div class="mt-3">
+                                <p class="text-muted mb-2">Top Spending Category</p>
+                                <p class="mb-0">
+                                    @{
+                                        var topCategory = summary.ExpensesByCategory.OrderByDescending(c => c.Amount).FirstOrDefault();
+                                        if (topCategory != null)
+                                        {
+                                            <span>@topCategory.CategoryName: @topCategory.Amount.ToString("C")</span>
+                                        }
+                                    }
+                                </p>
+                            </div>
+                        }
+
+                        <div class="mt-3">
+                            <a href="/expenses" class="btn btn-sm btn-outline-primary">View Expenses</a>
+                            <a href="/incomes" class="btn btn-sm btn-outline-success">View Income</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private MonthlySummaryDto? summary;
+    private bool isLoading = false;
+    private string? errorMessage;
+    private int selectedMonth;
+    private int selectedYear;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var isAuthenticated = await AuthService.IsAuthenticatedAsync();
+            if (!isAuthenticated)
+            {
+                NavigationManager.NavigateTo("/login");
+                return;
+            }
+
+            var now = DateTime.Now;
+            selectedMonth = now.Month;
+            selectedYear = now.Year;
+
+            await LoadSummary();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error initializing dashboard");
+            errorMessage = "An error occurred loading the dashboard";
+        }
+    }
+
+    private async Task LoadSummary()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            summary = await TransactionService.GetMonthlySummaryAsync(selectedYear, selectedMonth);
+            if (summary == null)
+            {
+                errorMessage = "Failed to load summary data";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading monthly summary");
+            errorMessage = "An error occurred while loading the summary";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

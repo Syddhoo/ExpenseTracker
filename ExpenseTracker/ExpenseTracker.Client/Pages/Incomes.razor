@@ -1,0 +1,384 @@
+@page "/incomes"
+@using ExpenseTracker.Client.Services
+@inject TransactionService TransactionService
+@inject AuthService AuthService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@inject ILogger<Incomes> Logger
+@implements IAsyncDisposable
+
+<div class="container-fluid mt-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h2>Income</h2>
+        </div>
+        <div class="col-md-4 text-end">
+            <button class="btn btn-success" @onclick="OpenAddModal">
+                <i class="bi bi-plus-circle"></i> Add Income
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (incomes == null || incomes.Count == 0)
+    {
+        <div class="alert alert-info">No income records found. <a href="#" @onclick="OpenAddModal">Add your first income</a></div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Date</th>
+                        <th>Description</th>
+                        <th>Category</th>
+                        <th>Amount</th>
+                        <th>Notes</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var income in incomes)
+                    {
+                        <tr>
+                            <td>@income.TransactionDate.ToString("MMM dd, yyyy")</td>
+                            <td>@income.Description</td>
+                            <td>
+                                <span class="badge bg-success">@income.CategoryName</span>
+                            </td>
+                            <td>@income.Amount.ToString("C")</td>
+                            <td>@(string.IsNullOrEmpty(income.Notes) ? "-" : income.Notes)</td>
+                            <td>
+                                <button class="btn btn-sm btn-warning" @onclick="() => OpenEditModal(income)">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => OpenDeleteConfirm(income.Id)">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal fade" id="incomeModal" tabindex="-1" @ref="modalElement">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">@(isEditMode ? "Edit Income" : "Add Income")</h5>
+                <button type="button" class="btn-close" @onclick="CloseModal"></button>
+            </div>
+            <form @onsubmit="SaveIncome">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <input type="text" class="form-control" id="description" 
+                               @bind="incomeForm.Description" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="amount" class="form-label">Amount</label>
+                        <input type="number" class="form-control" id="amount" 
+                               @bind="incomeForm.Amount" step="0.01" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="category" class="form-label">Category</label>
+                        <select class="form-control" id="category" @bind="incomeForm.CategoryId" required>
+                            <option value="0">Select a category</option>
+                            <option value="9">Salary</option>
+                            <option value="10">Investments</option>
+                            <option value="8">Other</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="transactionDate" class="form-label">Date</label>
+                        <input type="text" class="form-control" id="transactionDate" 
+                               placeholder="YYYY-MM-DD"
+                               @bind="incomeForm.TransactionDateString">
+                    </div>
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="notes" @bind="incomeForm.Notes" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                    <button type="submit" class="btn btn-success" disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        }
+                        @(isEditMode ? "Update" : "Add")
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" @ref="deleteModalElement">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Delete Income</h5>
+                <button type="button" class="btn-close" @onclick="CloseDeleteModal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete this income record? This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="CloseDeleteModal">Cancel</button>
+                <button type="button" class="btn btn-danger" @onclick="ConfirmDelete" disabled="@isSubmitting">
+                    @if (isSubmitting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    }
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<IncomeDto>? incomes;
+    private bool isLoading = true;
+    private bool isSubmitting = false;
+    private bool isEditMode = false;
+    private string? errorMessage;
+    private string? successMessage;
+    private int deleteIncomeId;
+
+    private IncomeFormModel incomeForm = new();
+    private ElementReference modalElement;
+    private ElementReference deleteModalElement;
+    private dynamic? modal;
+    private dynamic? deleteModal;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var isAuthenticated = await AuthService.IsAuthenticatedAsync();
+            if (!isAuthenticated)
+            {
+                NavigationManager.NavigateTo("/login");
+                return;
+            }
+
+            await LoadIncomes();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error initializing component");
+            errorMessage = "An error occurred loading income";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var bootStrapModule = await JS.InvokeAsync<dynamic>("import", "./bootstrap.bundle.min.js");
+        }
+    }
+
+    private async Task LoadIncomes()
+    {
+        isLoading = true;
+        try
+        {
+            incomes = await TransactionService.GetIncomesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading incomes");
+            errorMessage = "Failed to load income";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenAddModal()
+    {
+        isEditMode = false;
+        incomeForm = new IncomeFormModel { TransactionDateString = DateTime.Now.ToString("yyyy-MM-dd") };
+        modal = JS.InvokeVoidAsync("new bootstrap.Modal", modalElement);
+    }
+
+    private void OpenEditModal(IncomeDto income)
+    {
+        isEditMode = true;
+        incomeForm = new IncomeFormModel
+        {
+            Id = income.Id,
+            Description = income.Description,
+            Amount = income.Amount,
+            CategoryId = income.CategoryId,
+            TransactionDateString = income.TransactionDate.ToString("yyyy-MM-dd"),
+            Notes = income.Notes
+        };
+        modal = JS.InvokeVoidAsync("new bootstrap.Modal", modalElement);
+    }
+
+    private void OpenDeleteConfirm(int id)
+    {
+        deleteIncomeId = id;
+        deleteModal = JS.InvokeVoidAsync("new bootstrap.Modal", deleteModalElement);
+    }
+
+    private void CloseModal()
+    {
+        modal = JS.InvokeVoidAsync("new bootstrap.Modal", modalElement);
+    }
+
+    private void CloseDeleteModal()
+    {
+        deleteModal = JS.InvokeVoidAsync("new bootstrap.Modal", deleteModalElement);
+    }
+
+    private async Task SaveIncome()
+    {
+        try
+        {
+            isSubmitting = true;
+            errorMessage = null;
+            successMessage = null;
+
+            if (!DateTime.TryParse(incomeForm.TransactionDateString, out var transactionDate))
+                transactionDate = DateTime.Now;
+
+            if (isEditMode)
+            {
+                var request = new UpdateIncomeRequest
+                {
+                    Description = incomeForm.Description,
+                    Amount = incomeForm.Amount,
+                    CategoryId = incomeForm.CategoryId,
+                    TransactionDate = transactionDate,
+                    Notes = incomeForm.Notes
+                };
+
+                var result = await TransactionService.UpdateIncomeAsync(incomeForm.Id, request);
+                if (result)
+                {
+                    successMessage = "Income updated successfully";
+                    await LoadIncomes();
+                    CloseModal();
+                }
+                else
+                {
+                    errorMessage = "Failed to update income";
+                }
+            }
+            else
+            {
+                var request = new CreateIncomeRequest
+                {
+                    Description = incomeForm.Description,
+                    Amount = incomeForm.Amount,
+                    CategoryId = incomeForm.CategoryId,
+                    TransactionDate = transactionDate,
+                    Notes = incomeForm.Notes
+                };
+
+                var result = await TransactionService.CreateIncomeAsync(request);
+                if (result != null)
+                {
+                    successMessage = "Income added successfully";
+                    await LoadIncomes();
+                    CloseModal();
+                }
+                else
+                {
+                    errorMessage = "Failed to add income";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving income");
+            errorMessage = "An error occurred while saving the income";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task ConfirmDelete()
+    {
+        try
+        {
+            isSubmitting = true;
+            var result = await TransactionService.DeleteIncomeAsync(deleteIncomeId);
+            if (result)
+            {
+                successMessage = "Income deleted successfully";
+                await LoadIncomes();
+                CloseDeleteModal();
+            }
+            else
+            {
+                errorMessage = "Failed to delete income";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting income");
+            errorMessage = "An error occurred while deleting the income";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private class IncomeFormModel
+    {
+        public int Id { get; set; }
+        public string Description { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+        public int CategoryId { get; set; }
+        public string TransactionDateString { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
+        public string Notes { get; set; } = string.Empty;
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (modal is not null)
+            await JS.InvokeVoidAsync("new bootstrap.Modal", modalElement);
+        if (deleteModal is not null)
+            await JS.InvokeVoidAsync("new bootstrap.Modal", deleteModalElement);
+    }
+}

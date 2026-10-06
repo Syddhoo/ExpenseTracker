@@ -1,0 +1,229 @@
+@page "/login"
+@using ExpenseTracker.Client.Services
+@inject AuthService AuthService
+@inject NavigationManager NavigationManager
+@inject ILogger<Login> Logger
+
+<div class="container">
+    <div class="row justify-content-center mt-5">
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-body">
+                    <h2 class="card-title text-center mb-4">Expense Tracker</h2>
+
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link" id="login-tab" data-bs-toggle="tab" data-bs-target="#login" type="button" role="tab" 
+                                    aria-controls="login" aria-selected="@isLoginMode" 
+                                    @onclick="() => isLoginMode = true">
+                                Login
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" id="register-tab" data-bs-toggle="tab" data-bs-target="#register" type="button" role="tab" 
+                                    aria-controls="register" aria-selected="@(!isLoginMode)" 
+                                    @onclick="() => isLoginMode = false">
+                                Register
+                            </button>
+                        </li>
+                    </ul>
+
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            @errorMessage
+                            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(successMessage))
+                    {
+                        <div class="alert alert-success alert-dismissible fade show" role="alert">
+                            @successMessage
+                            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+                        </div>
+                    }
+
+                    <div class="tab-content">
+                        <div class="tab-pane fade @(isLoginMode ? "show active" : "")" id="login" role="tabpanel" aria-labelledby="login-tab">
+                            <form @onsubmit="HandleLogin">
+                                <div class="mb-3">
+                                    <label for="loginUsername" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="loginUsername" 
+                                           @bind="loginForm.Username" required disabled="@isSubmitting">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="loginPassword" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="loginPassword" 
+                                           @bind="loginForm.Password" required disabled="@isSubmitting">
+                                </div>
+                                <button type="submit" class="btn btn-primary w-100" disabled="@isSubmitting">
+                                    @if (isSubmitting)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                        <span>Logging in...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Login</span>
+                                    }
+                                </button>
+                            </form>
+                        </div>
+
+                        <div class="tab-pane fade @(!isLoginMode ? "show active" : "")" id="register" role="tabpanel" aria-labelledby="register-tab">
+                            <form @onsubmit="HandleRegister">
+                                <div class="mb-3">
+                                    <label for="registerUsername" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="registerUsername" 
+                                           @bind="registerForm.Username" required disabled="@isSubmitting">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="registerEmail" class="form-label">Email</label>
+                                    <input type="email" class="form-control" id="registerEmail" 
+                                           @bind="registerForm.Email" required disabled="@isSubmitting">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="registerPassword" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="registerPassword" 
+                                           @bind="registerForm.Password" required disabled="@isSubmitting">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="registerConfirmPassword" class="form-label">Confirm Password</label>
+                                    <input type="password" class="form-control" id="registerConfirmPassword" 
+                                           @bind="registerForm.ConfirmPassword" required disabled="@isSubmitting">
+                                </div>
+                                <button type="submit" class="btn btn-success w-100" disabled="@isSubmitting">
+                                    @if (isSubmitting)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                        <span>Registering...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Register</span>
+                                    }
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool isLoginMode = true;
+    private bool isSubmitting = false;
+    private string? errorMessage;
+    private string? successMessage;
+
+    private LoginFormModel loginForm = new();
+    private RegisterFormModel registerForm = new();
+
+    private async Task HandleLogin()
+    {
+        try
+        {
+            isSubmitting = true;
+            errorMessage = null;
+            successMessage = null;
+
+            if (string.IsNullOrWhiteSpace(loginForm.Username) || string.IsNullOrWhiteSpace(loginForm.Password))
+            {
+                errorMessage = "Username and password are required";
+                return;
+            }
+
+            var result = await AuthService.LoginAsync(loginForm.Username, loginForm.Password);
+
+            if (result)
+            {
+                successMessage = "Login successful! Redirecting...";
+                await Task.Delay(1500);
+                NavigationManager.NavigateTo("/dashboard");
+            }
+            else
+            {
+                errorMessage = "Login failed. Please check your credentials.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during login");
+            errorMessage = "An error occurred during login. Please try again.";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task HandleRegister()
+    {
+        try
+        {
+            isSubmitting = true;
+            errorMessage = null;
+            successMessage = null;
+
+            if (string.IsNullOrWhiteSpace(registerForm.Username) || 
+                string.IsNullOrWhiteSpace(registerForm.Email) || 
+                string.IsNullOrWhiteSpace(registerForm.Password))
+            {
+                errorMessage = "All fields are required";
+                return;
+            }
+
+            if (registerForm.Password != registerForm.ConfirmPassword)
+            {
+                errorMessage = "Passwords do not match";
+                return;
+            }
+
+            if (registerForm.Password.Length < 6)
+            {
+                errorMessage = "Password must be at least 6 characters long";
+                return;
+            }
+
+            var result = await AuthService.RegisterAsync(registerForm.Username, registerForm.Email, registerForm.Password);
+
+            if (result)
+            {
+                successMessage = "Registration successful! You can now login.";
+                registerForm = new();
+                await Task.Delay(2000);
+                isLoginMode = true;
+            }
+            else
+            {
+                errorMessage = "Registration failed. Please check your details and try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during registration");
+            errorMessage = "An error occurred during registration. Please try again.";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private class LoginFormModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+
+    private class RegisterFormModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string ConfirmPassword { get; set; } = string.Empty;
+    }
+}

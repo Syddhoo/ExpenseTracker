@@ -1,0 +1,389 @@
+@page "/expenses"
+@using ExpenseTracker.Client.Services
+@inject TransactionService TransactionService
+@inject AuthService AuthService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@inject ILogger<Expenses> Logger
+@implements IAsyncDisposable
+
+<div class="container-fluid mt-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h2>Expenses</h2>
+        </div>
+        <div class="col-md-4 text-end">
+            <button class="btn btn-primary" @onclick="OpenAddModal">
+                <i class="bi bi-plus-circle"></i> Add Expense
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (expenses == null || expenses.Count == 0)
+    {
+        <div class="alert alert-info">No expenses found. <a href="#" @onclick="OpenAddModal">Add your first expense</a></div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Date</th>
+                        <th>Description</th>
+                        <th>Category</th>
+                        <th>Amount</th>
+                        <th>Notes</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var expense in expenses)
+                    {
+                        <tr>
+                            <td>@expense.TransactionDate.ToString("MMM dd, yyyy")</td>
+                            <td>@expense.Description</td>
+                            <td>
+                                <span class="badge bg-secondary">@expense.CategoryName</span>
+                            </td>
+                            <td>@expense.Amount.ToString("C")</td>
+                            <td>@(string.IsNullOrEmpty(expense.Notes) ? "-" : expense.Notes)</td>
+                            <td>
+                                <button class="btn btn-sm btn-warning" @onclick="() => OpenEditModal(expense)">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => OpenDeleteConfirm(expense.Id)">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal fade" id="expenseModal" tabindex="-1" @ref="modalElement">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">@(isEditMode ? "Edit Expense" : "Add Expense")</h5>
+                <button type="button" class="btn-close" @onclick="CloseModal"></button>
+            </div>
+            <form @onsubmit="SaveExpense">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <input type="text" class="form-control" id="description" 
+                               @bind="expenseForm.Description" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="amount" class="form-label">Amount</label>
+                        <input type="number" class="form-control" id="amount" 
+                               @bind="expenseForm.Amount" step="0.01" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="category" class="form-label">Category</label>
+                        <select class="form-control" id="category" @bind="expenseForm.CategoryId" required>
+                            <option value="0">Select a category</option>
+                            <option value="1">Food & Dining</option>
+                            <option value="2">Transportation</option>
+                            <option value="3">Shopping</option>
+                            <option value="4">Entertainment</option>
+                            <option value="5">Utilities</option>
+                            <option value="6">Healthcare</option>
+                            <option value="7">Education</option>
+                            <option value="8">Other</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="transactionDate" class="form-label">Date</label>
+                        <input type="text" class="form-control" id="transactionDate" 
+                               placeholder="YYYY-MM-DD"
+                               @bind="expenseForm.TransactionDateString">
+                    </div>
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="notes" @bind="expenseForm.Notes" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        }
+                        @(isEditMode ? "Update" : "Add")
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" @ref="deleteModalElement">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Delete Expense</h5>
+                <button type="button" class="btn-close" @onclick="CloseDeleteModal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete this expense? This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="CloseDeleteModal">Cancel</button>
+                <button type="button" class="btn btn-danger" @onclick="ConfirmDelete" disabled="@isSubmitting">
+                    @if (isSubmitting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    }
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ExpenseDto>? expenses;
+    private bool isLoading = true;
+    private bool isSubmitting = false;
+    private bool isEditMode = false;
+    private string? errorMessage;
+    private string? successMessage;
+    private int deleteExpenseId;
+
+    private ExpenseFormModel expenseForm = new();
+    private ElementReference modalElement;
+    private ElementReference deleteModalElement;
+    private dynamic? modal;
+    private dynamic? deleteModal;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var isAuthenticated = await AuthService.IsAuthenticatedAsync();
+            if (!isAuthenticated)
+            {
+                NavigationManager.NavigateTo("/login");
+                return;
+            }
+
+            await LoadExpenses();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error initializing component");
+            errorMessage = "An error occurred loading expenses";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var bootStrapModule = await JS.InvokeAsync<dynamic>("import", "./bootstrap.bundle.min.js");
+        }
+    }
+
+    private async Task LoadExpenses()
+    {
+        isLoading = true;
+        try
+        {
+            expenses = await TransactionService.GetExpensesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading expenses");
+            errorMessage = "Failed to load expenses";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenAddModal()
+    {
+        isEditMode = false;
+        expenseForm = new ExpenseFormModel { TransactionDateString = DateTime.Now.ToString("yyyy-MM-dd") };
+        modal = JS.InvokeVoidAsync("new bootstrap.Modal", modalElement);
+    }
+
+    private void OpenEditModal(ExpenseDto expense)
+    {
+        isEditMode = true;
+        expenseForm = new ExpenseFormModel
+        {
+            Id = expense.Id,
+            Description = expense.Description,
+            Amount = expense.Amount,
+            CategoryId = expense.CategoryId,
+            TransactionDateString = expense.TransactionDate.ToString("yyyy-MM-dd"),
+            Notes = expense.Notes
+        };
+        modal = JS.InvokeVoidAsync("new bootstrap.Modal", modalElement);
+    }
+
+    private void OpenDeleteConfirm(int id)
+    {
+        deleteExpenseId = id;
+        deleteModal = JS.InvokeVoidAsync("new bootstrap.Modal", deleteModalElement);
+    }
+
+    private void CloseModal()
+    {
+        modal = JS.InvokeVoidAsync("new bootstrap.Modal", modalElement);
+    }
+
+    private void CloseDeleteModal()
+    {
+        deleteModal = JS.InvokeVoidAsync("new bootstrap.Modal", deleteModalElement);
+    }
+
+    private async Task SaveExpense()
+    {
+        try
+        {
+            isSubmitting = true;
+            errorMessage = null;
+            successMessage = null;
+
+            if (!DateTime.TryParse(expenseForm.TransactionDateString, out var transactionDate))
+                transactionDate = DateTime.Now;
+
+            if (isEditMode)
+            {
+                var request = new UpdateExpenseRequest
+                {
+                    Description = expenseForm.Description,
+                    Amount = expenseForm.Amount,
+                    CategoryId = expenseForm.CategoryId,
+                    TransactionDate = transactionDate,
+                    Notes = expenseForm.Notes
+                };
+
+                var result = await TransactionService.UpdateExpenseAsync(expenseForm.Id, request);
+                if (result)
+                {
+                    successMessage = "Expense updated successfully";
+                    await LoadExpenses();
+                    CloseModal();
+                }
+                else
+                {
+                    errorMessage = "Failed to update expense";
+                }
+            }
+            else
+            {
+                var request = new CreateExpenseRequest
+                {
+                    Description = expenseForm.Description,
+                    Amount = expenseForm.Amount,
+                    CategoryId = expenseForm.CategoryId,
+                    TransactionDate = transactionDate,
+                    Notes = expenseForm.Notes
+                };
+
+                var result = await TransactionService.CreateExpenseAsync(request);
+                if (result != null)
+                {
+                    successMessage = "Expense added successfully";
+                    await LoadExpenses();
+                    CloseModal();
+                }
+                else
+                {
+                    errorMessage = "Failed to add expense";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving expense");
+            errorMessage = "An error occurred while saving the expense";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task ConfirmDelete()
+    {
+        try
+        {
+            isSubmitting = true;
+            var result = await TransactionService.DeleteExpenseAsync(deleteExpenseId);
+            if (result)
+            {
+                successMessage = "Expense deleted successfully";
+                await LoadExpenses();
+                CloseDeleteModal();
+            }
+            else
+            {
+                errorMessage = "Failed to delete expense";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting expense");
+            errorMessage = "An error occurred while deleting the expense";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private class ExpenseFormModel
+    {
+        public int Id { get; set; }
+        public string Description { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+        public int CategoryId { get; set; }
+        public string TransactionDateString { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
+        public string Notes { get; set; } = string.Empty;
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (modal is not null)
+            await JS.InvokeVoidAsync("new bootstrap.Modal", modalElement);
+        if (deleteModal is not null)
+            await JS.InvokeVoidAsync("new bootstrap.Modal", deleteModalElement);
+    }
+}
