@@ -1,5 +1,7 @@
 @page "/expenses"
 @using ExpenseTracker.Client.Services
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @inject TransactionService TransactionService
 @inject AuthService AuthService
 @inject NavigationManager NavigationManager

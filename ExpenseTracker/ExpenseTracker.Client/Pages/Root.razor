@@ -1,0 +1,30 @@
+@using ExpenseTracker.Client.Services
+@inject AuthService AuthService
+@inject NavigationManager NavigationManager
+@inject ILogger<Root> Logger
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var isAuthenticated = await AuthService.IsAuthenticatedAsync();
+
+            if (isAuthenticated)
+            {
+                // Redirect to dashboard if already logged in
+                NavigationManager.NavigateTo("/dashboard", replace: true);
+            }
+            else
+            {
+                // Redirect to login if not authenticated
+                NavigationManager.NavigateTo("/login", replace: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during authentication check");
+            NavigationManager.NavigateTo("/login", replace: true);
+        }
+    }
+}
